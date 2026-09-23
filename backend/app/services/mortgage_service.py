@@ -33,28 +33,9 @@ class MortgageService:
         loans.update_legs(self._c, lid, legs)
         return self.loan(lid)
     def history_run(self, run_id: int):
-        import json
-        from app.repositories import runs
-        from app.services.combo_live_merge import merge_with_live_commercial, stored_legs_from_run
-        row = runs.get(self._c, run_id)
-        if not row:
-            return None
-        if row.get("kind") != "combo_schedule":
-            return row
-        stored = stored_legs_from_run(row)
-        loan = loans.get(self._c, row.get("loan_id")) if row.get("loan_id") else None
-        live_legs = (loan or {}).get("legs") or stored
-        if not stored:
-            return row
-        merged = merge_with_live_commercial(stored, live_legs)
-        return {
-            "id": row["id"],
-            "kind": row["kind"],
-            "loan_id": row["loan_id"],
-            "created_at": row["created_at"],
-            "input": stored,
-            "result": merged,
-        }
+        # 历史记录是落表时的快照：按编号取出即原样返回存储的输入与结果，
+        # 不按当前利率重算、不与贷款当前两腿合并，也不写回旧记录。
+        return runs.get(self._c, run_id)
 
     def dashboard(self):
         items = loans.list_all(self._c)

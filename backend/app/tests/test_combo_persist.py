@@ -70,3 +70,34 @@ def test_save_legs_rejects_missing_leg_and_bad_principal():
         with pytest.raises(ValueError):
             s.save_legs(2, {"commercial": {**LEGS["commercial"], "principal": 0}, "fund": LEGS["fund"]})
         assert s.save_legs(999, LEGS) is None
+
+def test_reopen_combo_run_keeps_saved_snapshot_after_fund_rate_change():
+    with MortgageService() as s:
+        s.save_legs(3, LEGS)
+        out = s.combo_schedule(LEGS, 3, True)
+        rid = out["run_id"]
+        # 落表后按编号取出：两腿与合并月供能对上
+        rec = s.history_run(rid)
+        assert rec["result"]["legs"]["commercial"]["monthly_payment"] == out["legs"]["commercial"]["monthly_payment"]
+        assert rec["result"]["legs"]["fund"]["monthly_payment"] == out["legs"]["fund"]["monthly_payment"]
+        assert rec["result"]["monthly_payment"] == out["monthly_payment"]
+        # 只改公积金腿年利率
+        changed = {"commercial": dict(LEGS["commercial"]), "fund": {**LEGS["fund"], "annual_rate": 9.9}}
+        s.save_legs(3, changed)
+        # 再次打开旧记录：两腿月供与合并数维持落表时那一组
+        rec2 = s.history_run(rid)
+        assert rec2["input"]["fund"]["annual_rate"] == LEGS["fund"]["annual_rate"]
+        assert rec2["result"]["legs"]["commercial"]["monthly_payment"] == out["legs"]["commercial"]["monthly_payment"]
+        assert rec2["result"]["legs"]["fund"]["monthly_payment"] == out["legs"]["fund"]["monthly_payment"]
+        assert rec2["result"]["monthly_payment"] == out["monthly_payment"]
+        # 打开不写回旧记录：再读不变，历史条数不增
+        before = len(s.history(100))
+        assert s.history_run(rid) == rec2
+        assert len(s.history(100)) == before
+        # 新测走新利率
+        newer = s.combo_schedule(changed, 3, False)
+        assert newer["legs"]["fund"]["monthly_payment"] != out["legs"]["fund"]["monthly_payment"]
+
+def test_history_run_missing_id_returns_none():
+    with MortgageService() as s:
+        assert s.history_run(999999) is None
