@@ -47,6 +47,45 @@ def test_old_record_not_dragged_by_later_leg_rate_change():
         assert rec["result"]["legs"]["fund"]["monthly_payment"] == out["legs"]["fund"]["monthly_payment"]
         assert rec["result"]["monthly_payment"] == out["monthly_payment"]
 
+def test_history_detail_keeps_snapshot_after_fund_rate_change():
+    with MortgageService() as s:
+        # 组合贷挂到贷款 3，落表时商业/公积金/合并月供一致
+        loan = s.save_legs(3, LEGS)
+        assert loan
+        out = s.combo_schedule(LEGS, 3, True)
+        rid = out["run_id"]
+        old_commercial = out["legs"]["commercial"]["monthly_payment"]
+        old_fund = out["legs"]["fund"]["monthly_payment"]
+        old_merged = out["monthly_payment"]
+
+        # 只改公积金腿年利率，新测算走新利率
+        changed = {"commercial": dict(LEGS["commercial"]), "fund": {**LEGS["fund"], "annual_rate": 9.9}}
+        s.save_legs(3, changed)
+        newer = s.combo_schedule(changed, 3, True)
+        assert newer["legs"]["fund"]["monthly_payment"] != old_fund
+
+        # 打开旧记录：两腿月供与合并数都维持落表时那一组
+        rec = s.history_run(rid)
+        assert rec["kind"] == "combo_schedule"
+        assert rec["input"]["fund"]["annual_rate"] == LEGS["fund"]["annual_rate"]
+        assert rec["result"]["legs"]["commercial"]["monthly_payment"] == old_commercial
+        assert rec["result"]["legs"]["fund"]["monthly_payment"] == old_fund
+        assert rec["result"]["monthly_payment"] == old_merged
+
+        # 再次打开依旧不变，且读取不写回旧记录
+        raw_before = s._c.execute(
+            "SELECT input_json, result_json FROM calc_runs WHERE id=?", (rid,)).fetchone()
+        rec_again = s.history_run(rid)
+        raw_after = s._c.execute(
+            "SELECT input_json, result_json FROM calc_runs WHERE id=?", (rid,)).fetchone()
+        assert tuple(raw_after) == tuple(raw_before)
+        assert rec_again["result"]["legs"]["fund"]["monthly_payment"] == old_fund
+        assert rec_again["result"]["monthly_payment"] == old_merged
+
+def test_history_run_missing_returns_none():
+    with MortgageService() as s:
+        assert s.history_run(999999) is None
+
 def test_legacy_loan_without_legs_stays_single():
     with MortgageService() as s:
         loan = s.loan(1)

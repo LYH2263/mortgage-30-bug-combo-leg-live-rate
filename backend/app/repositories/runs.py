@@ -11,3 +11,12 @@ def list_recent(conn, limit=50):
         r["input"] = json.loads(r.pop("input_json"))
         r["result"] = json.loads(r.pop("result_json"))
     return rows
+
+def get(conn, run_id):
+    row = conn.execute("SELECT * FROM calc_runs WHERE id=?", (run_id,)).fetchone()
+    if not row:
+        return None
+    r = dict(row)
+    r["input"] = json.loads(r.pop("input_json"))
+    r["result"] = json.loads(r.pop("result_json"))
+    return r
